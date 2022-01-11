@@ -1,0 +1,1119 @@
+後端
+Back
+
+
+npm init --yes
+加"type":"module"
+改"dev":"nodemon index.js","start":"node index.js"
+npm i -D eslint nodemon
+F1 create eslint
+改eslint版本12
+
+
+
+
+建立 .gitignore
+node_modules
+.env
+
+
+
+前後端放在一起
+在back裡面
+eslint要自己打
+npm i -D eslint 不會跳選項
+路徑問題eslint 會失效
+
+要在cmd打
+node_modules\.bin\eslint -- init
+
+這樣eslint才會跳選項
+
+
+安裝套件
+npm i express mongoose dotenv jsonwebtoken multer cloudinary multer-storage-cloudinary md5 validator cors
+
+
+
+
+
+
+
+
+
+
+
+新增資料夾model/user.js
+寫資料架構
+import mongoose from 'mongoose'
+import md5 from 'md5'
+import validator from 'validator'
+
+const userSchema = new mongoose.Schema({
+  account: {
+    type: String,
+    minlength: [4, '帳號必須 4 個字以上'],
+    maxlength: [20, '帳號必須 20 個字以下'],
+    unique: true,
+    required: [true, '帳號不能為空']
+  },
+  password: {
+    type: String,
+    required: [true, '密碼不能為空']
+  },
+  email: {
+    type: String,
+    required: [true, '信箱不能為空'],
+    unique: true,
+    validate: {
+      validator (email) {
+        return validator.isEmail(email)
+      },
+      message: '信箱格式不正確'
+    }
+  },
+  role: {
+    // 0 = 一般會員
+    // 1 = 管理員
+    type: Number,
+    default: 0
+  },
+  tokens: {
+    type: [String]
+  },
+  cart: {
+    type: [
+      {
+        product: {
+          type: mongoose.ObjectId,
+          ref: 'products',
+          required: [true, '缺少商品 ID']
+        },
+        quantity: {
+          type: Number,
+          required: [true, '缺少商品數量']
+        }
+      }
+    ]
+  }
+}, { versionKey: false })
+
+userSchema.pre('save', function (next) {
+  const user = this
+  if (user.isModified('password')) {
+    if (user.password.length >= 4 && user.password.length <= 20) {
+      user.password = md5(user.password)
+    } else {
+      const error = new mongoose.Error.ValidationError(null)
+      error.addError('password', new mongoose.Error.ValidatorError({ message: '密碼長度錯誤' }))
+      next(error)
+      return
+    }
+  }
+  next()
+})
+
+userSchema.pre('findOneAndUpdate', function (next) {
+  const user = this._update
+  if (user.password) {
+    if (user.password.length >= 4 && user.password.length <= 20) {
+      user.password = md5(user.password)
+    } else {
+      const error = new mongoose.Error.ValidationError(null)
+      error.addError('password', new mongoose.Error.ValidatorError({ message: '密碼長度錯誤' }))
+      next(error)
+      return
+    }
+  }
+  next()
+})
+
+export default mongoose.model('users', userSchema)
+
+
+Schema = 架構
+
+
+
+
+
+
+
+
+
+
+
+
+
+創model/products.js
+import mongoose from 'mongoose'
+
+const productSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: [true, '商品名不能為空']
+  },
+  price: {
+    type: Number,
+    min: [0, '價格格式不正確'],
+    required: [true, '商品價格不能為空']
+  },
+  description: {
+    type: String
+  },
+  image: {
+    type: String
+  },
+  sell: {
+    type: Boolean,
+    default: false
+  },
+  category: {
+    type: String,
+    enum: {
+      values: ['飾品', '皮件', '鞋子'],
+      message: '商品分類不存在'
+    }
+  }
+}, { versionKey: false })
+
+export default mongoose.model('products', productSchema)
+
+
+
+
+
+
+
+
+創model/orders.js
+import mongoose from 'mongoose'
+
+const orderSchema = new mongoose.Schema({
+  user: {
+    type: mongoose.ObjectId,
+    ref: 'users'
+  },
+  products: {
+    type: [
+      {
+        product: {
+          type: mongoose.ObjectId,
+          ref: 'products',
+          required: [true, '缺少商品 ID']
+        },
+        quantity: {
+          type: Number,
+          required: [true, '缺少商品數量']
+        }
+      }
+    ]
+  },
+  date: {
+    type: Date,
+    default: Date.now
+  }
+}, { versionKey: false })
+
+export default mongoose.model('orders', orderSchema)
+
+
+
+
+
+
+
+
+
+
+在外層創一個 index.js
+import 'dotenv/config'
+import express from 'express'
+import mongoose from 'mongoose'
+import cors from 'cors'
+
+       // .env很重要
+mongoose.connect(process.env.DB_URL, () => {
+  console.log('MongoDB Connected')
+})
+
+const app = express()
+
+app.use(cors({
+  origin (origin, callback) {
+    if (origin === undefined || origin.includes('github') || origin.includes('localhost')) {
+      callback(null, true)
+    } else {
+      callback(new Error('Not allowed'), false)
+    }
+  }
+}))
+app.use((_, req, res, next) => {
+  res.status(403).send({ success: false, message: '請求被拒絕' })
+})
+
+app.use(express.json())
+app.use((_, req, res, next) => {
+  res.status(400).send({ success: false, message: '資料格式錯誤' })
+})
+
+app.all('*', (req, res) => {
+  res.status(404).send({ success: false, message: '找不到' })
+})
+
+app.listen(process.env.PORT || 3000, () => {
+  console.log('Server Started')
+})
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+創routes/users.js
+
+import express from 'express'
+import {
+  register
+} from '../controllers/users.js'
+
+const router = express.Router()
+
+router.post('/', register)
+
+export default router
+
+
+
+
+
+
+
+
+
+
+
+
+
+創controllers/users.js
+
+import users from '../models/users.js'
+
+export const register = async (req, res) => {
+  if (!req.headers['content-type'] || !req.headers['content-type'].includes('application/json')) {
+    res.status(400).send({ success: false, message: '資料格式不正確' })
+    return
+  }
+  try {
+    await users.create(req.body)
+    res.status(200).send({ success: true, message: '' })
+  } catch (error) {
+    if (error.name === 'ValidationError') {
+      const key = Object.keys(error.errors)[0]
+      res.status(400).send({ success: false, message: error.errors[key].message })
+    } else if (error.name === 'MongoServerError' && error.code === 11000) {
+      res.status(400).send({ success: false, message: '帳號已存在' })
+    } else {
+      res.status(500).send({ success: false, message: '伺服器錯誤' })
+    }
+  }
+}
+
+
+
+順序概念
+models 被引入到 controllers 被引入到 routes 被引入到 index.js
+通常寫的順序
+models 然後 index.js  然後 routes 然後 controllers 然後 引入到index.js
+
+
+
+
+
+
+
+建立.env
+DB_URL= (moogonDB複製) /text5
+
+
+在index引入路由
+import usersRouter from './routes/users.js'
+app.use('/users', usersRouter) =>引入在app.all('*', (req, res) 上面
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+前端
+再上層
+在20220103JS
+
+cmd
+建立front
+
+指令
+vue create front
+
+選項
+
+D:\ting\VS\20220103JS>vue create front
+
+
+Vue CLI v4.5.15
+? Please pick a preset: Manually select features
+? Check the features needed for your project: Choose Vue version, Babel, Router, Vuex, CSS Pre-processors, Linter
+? Choose a version of Vue.js that you want to start the project with 2.x
+? Use history mode for router? (Requires proper server setup for index fallback in production) No
+? Pick a CSS pre-processor (PostCSS, Autoprefixer and CSS Modules are supported by default): Stylus
+? Pick a linter / formatter config: Standard
+? Pick additional lint features: Lint on save
+? Where do you prefer placing config for Babel, ESLint, etc.? In dedicated config files
+? Save this as a preset for future projects? No
+
+
+
+
+進入front 資料夾
+
+
+
+vue add bootstrap-vue
+
+D:\ting\VS\20220103JS\front>vue add bootstrap-vue
+
+�📦  Installing vue-cli-plugin-bootstrap-vue...
+
+
+added 1 package, and audited 1386 packages in 3s
+
+95 packages are looking for funding
+  run `npm fund` for details
+
+30 vulnerabilities (19 moderate, 11 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+✔  Successfully installed plugin: vue-cli-plugin-bootstrap-vue
+
+? Use babel/polyfill? Yes
+? Use scss? No
+
+�🚀  Invoking generator for vue-cli-plugin-bootstrap-vue...
+�📦  Installing additional dependencies...
+
+
+added 30 packages, and audited 1416 packages in 6s
+
+99 packages are looking for funding
+  run `npm fund` for details
+
+30 vulnerabilities (19 moderate, 11 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+⚓  Running completion hooks...
+
+✔  Successfully invoked generator for plugin: vue-cli-plugin-bootstrap-vue
+
+
+
+npm i -D pug pug-plain-loader
+npm i axios vue-axios vue-sweetalert2
+
+
+app.vue 清空
+views/Home.vue 清空
+views/About.vue 刪掉
+components/hello world 刪掉
+
+
+
+
+
+
+先寫路由
+router/index.js
+
+
+import Vue from 'vue'
+import VueRouter from 'vue-router'
+import Home from '../views/Home.vue'
+
+Vue.use(VueRouter)
+
+const routes = [
+  {
+    path: '/',
+    name: 'Home',
+    component: Home,
+    meta: {
+      title: '購物網'
+    }
+  },
+  {
+    path: '/register',
+    name: 'Register',
+    component: () => import(/* webpackChunkName: "register" */ '../views/Register.vue'),
+    meta: {
+      title: '註冊 | 購物網'
+    }
+  }
+]
+
+const router = new VueRouter({
+  routes
+})
+
+router.afterEach((to, from) => {
+  document.title = to.meta.title
+})
+
+export default router
+
+
+
+
+
+
+
+新增views/Register.vue
+
+
+
+先寫App.vue
+<template lang="pug">
+#app
+  b-navbar(toggleable='lg' type='dark' variant='primary')
+    b-container
+      b-navbar-brand(to='/') 購物網
+      b-navbar-toggle(target='nav-collapse')
+      b-collapse#nav-collapse(is-nav)
+        b-navbar-nav.ml-auto
+          b-nav-item(to='/register') 註冊
+  router-view
+</template>
+
+
+
+
+在package.json 改
+"scripts": {
+    "serve": "SET NODE_OPTIONS=--openssl-legacy-provider && vue-cli-service serve",
+    "build": "SET NODE_OPTIONS=--openssl-legacy-provider && vue-cli-service build",
+    "lint": "SET NODE_OPTIONS=--openssl-legacy-provider && vue-cli-service lint",
+    "serve-linux": "export SET NODE_OPTIONS=--openssl-legacy-provider; vue-cli-service serve",
+    "build-linux": "export SET NODE_OPTIONS=--openssl-legacy-provider; vue-cli-service build",
+    "lint-linux": "export SET NODE_OPTIONS=--openssl-legacy-provider; vue-cli-service lint"
+  },
+
+
+npm run serve 看目前頁面
+
+
+
+先寫商品管理在寫購物車
+
+
+註冊表單
+views/Register.vue
+
+<template lang="pug">
+b-container#register
+  b-row
+    b-col(cols='12')
+      h1.text-center 註冊
+    b-col(cols='12')
+      b-form
+        b-form-group(label='帳號' label-for='input-account' description='帳號長度為 4 到 20 個字' :state="state.account" invalid-feedback="帳號格式不正確")
+          b-form-input#input-account(v-model="form.account" required placeholder='請輸入帳號' type='text' :state="state.account")
+        b-form-group(label='密碼' label-for='input-password' description='密碼長度為 4 到 20 個字' :state="state.password" invalid-feedback="密碼格式不正確")
+          b-form-input#input-password(v-model="form.password" required placeholder='請輸入密碼' type='password' :state="state.password")
+        b-form-group(label='信箱' label-for='input-email' description='請輸入有效的信箱' :state="state.email" invalid-feedback="信箱格式不正確")
+          b-form-input#input-email(v-model="form.email" required placeholder='請輸入信箱' type='text' :state="state.email")
+        .text-center
+          b-btn.mx-1(variant='success' type='submit') 註冊
+</template>
+
+<script>
+import validator from 'validator'
+
+export default {
+  data () {
+    return {
+      form: {
+        account: '',
+        password: '',
+        email: ''
+      }
+    }
+  },
+  computed: {
+    state () {
+      return {
+        account: this.form.account.length === 0 ? null : this.form.account.length >= 4 && this.form.account.length <= 20,
+        password: this.form.password.length === 0 ? null : this.form.password.length >= 4 && this.form.password.length <= 20,
+        email: this.form.email.length === 0 ? null : validator.isEmail(this.form.email)
+      }
+    }
+  }
+}
+</script>
+
+
+
+
+
+
+npm i validator
+前端也要裝驗證套件
+
+state()加
+ email: this.form.email.length === 0 ? null : validator.isEmail(this.form.email)
+
+
+
+
+
+
+
+
+創plugins/axios.js
+https://www.npmjs.com/package/vue-axios(npm引入方法)
+import Vue from 'vue'
+import axios from 'axios'
+import VueAxios from 'vue-axios'
+
+const api = axios.create({
+  baseURL: process.env.VUE_APP_API
+})
+
+Vue.use(VueAxios, { axios, api })
+
+
+
+
+
+
+main.js裡面引入
+import './plugins/axios.js'
+
+
+
+
+
+
+
+
+Register.vue
+加
+b-form(@submit.prevent="register") 
+ methods: {
+    async register () {
+      try {
+        await this.api.post('/users')
+      } catch (error) {
+
+      }
+    }
+  }
+
+
+
+
+
+
+引入sweetalert2 到main.js
+(npm:https://www.npmjs.com/package/vue-sweetalert2)
+// import Vue from 'vue';
+import VueSweetalert2 from 'vue-sweetalert2'
+import 'sweetalert2/dist/sweetalert2.min.css'
+
+Vue.use(VueSweetalert2)
+
+
+
+
+
+
+Register.vue
+加
+methods: {
+    async register () {
+      try {
+        await this.api.post('/users', this.form)
+        this.$swal({
+          icon: 'success',
+          title: '成功',
+          text: '註冊成功'
+        })
+        this.$router.push('/')
+      } catch (error) {
+        this.$swal({
+          icon: 'error',
+          title: '錯誤',
+          text: error.response.data.message
+        })
+      }
+    }
+  }
+
+
+
+
+
+
+整個Register.vue
+<template lang="pug">
+b-container#register
+  b-row
+    b-col(cols='12')
+      h1.text-center 註冊
+    b-col(cols='12')
+      b-form(@submit.prevent="register")
+        b-form-group(label='帳號' label-for='input-account' description='帳號長度為 4 到 20 個字' :state="state.account" invalid-feedback="帳號格式不正確")
+          b-form-input#input-account(v-model="form.account" required placeholder='請輸入帳號' type='text' :state="state.account")
+        b-form-group(label='密碼' label-for='input-password' description='密碼長度為 4 到 20 個字' :state="state.password" invalid-feedback="密碼格式不正確")
+          b-form-input#input-password(v-model="form.password" required placeholder='請輸入密碼' type='password' :state="state.password")
+        b-form-group(label='信箱' label-for='input-email' description='請輸入有效的信箱' :state="state.email" invalid-feedback="信箱格式不正確")
+          b-form-input#input-email(v-model="form.email" required placeholder='請輸入信箱' type='text' :state="state.email")
+        .text-center
+          b-btn.mx-1(variant='success' type='submit') 註冊
+</template>
+
+<script>
+import validator from 'validator'
+
+export default {
+  data () {
+    return {
+      form: {
+        account: '',
+        password: '',
+        email: ''
+      }
+    }
+  },
+  computed: {
+    state () {
+      return {
+        account: this.form.account.length === 0 ? null : this.form.account.length >= 4 && this.form.account.length <= 20,
+        password: this.form.password.length === 0 ? null : this.form.password.length >= 4 && this.form.password.length <= 20,
+        email: this.form.email.length === 0 ? null : validator.isEmail(this.form.email)
+      }
+    }
+  },
+  methods: {
+    async register () {
+      try {
+        await this.api.post('/users', this.form)
+        this.$swal({
+          icon: 'success',
+          title: '成功',
+          text: '註冊成功'
+        })
+        this.$router.push('/')
+      } catch (error) {
+        this.$swal({
+          icon: 'error',
+          title: '錯誤',
+          text: error.response.data.message
+        })
+      }
+    }
+  }
+}
+</script>
+
+
+建立.env.local
+VUE_APP_API=http://localhost:3000
+
+
+後端 npm run dev 
+前端 npm run serve
+
+選localhost的網址打開VUE
+就可以把資料註冊傳入成功
+
+
+
+
+
+
+後端
+創資料夾middleware/content.js
+export default (contentType) => {
+  return (req, res, next) => {
+    if (!req.headers['content-type'] || !req.headers['content-type'].includes(contentType)) {
+      res.status(400).send({ success: false, message: '資料格式不正確' })
+    } else {
+      next()
+    }
+  }
+}
+
+
+
+
+
+
+routes/users.js
+
+import express from 'express'
+import content from '../middleware/content.js'
+
+import {
+  register,
+  login
+} from '../controllers/users.js'
+
+const router = express.Router()
+
+router.post('/', content('application/json'), register)
+router.post('/login', content('application/json'), login)
+
+export default router
+
+
+
+
+
+
+
+
+
+
+
+
+controllers/users.js
+
+
+import md5 from 'md5'
+import jwt from 'jsonwebtoken'
+import users from '../models/users.js'
+
+export const register = async (req, res) => {
+  try {
+    await users.create(req.body)
+    res.status(200).send({ success: true, message: '' })
+  } catch (error) {
+    if (error.name === 'ValidationError') {
+      const key = Object.keys(error.errors)[0]
+      res.status(400).send({ success: false, message: error.errors[key].message })
+    } else if (error.name === 'MongoServerError' && error.code === 11000) {
+      res.status(400).send({ success: false, message: '帳號已存在' })
+    } else {
+      res.status(500).send({ success: false, message: '伺服器錯誤' })
+    }
+  }
+}
+
+export const login = async (req, res) => {
+  try {
+    const user = await users.findOne(
+      { account: req.body.account, password: md5(req.body.password) },
+      '-password -tokens'
+    )
+    if (user) {
+      const token = jwt.sign({ _id: user._id.toString() }, process.env.SECRET, { expiresIn: '7 days' })
+      user.tokens.push(token)
+      await user.save()
+      res.status(200).send({ success: true, message: '', result: { ...user, token } })
+    } else {
+      res.stauts(404).send({ success: false, message: '帳號或密碼錯誤' })
+    }
+  } catch (error) {
+    res.stauts(500).send({ success: false, message: '伺服器錯誤' })
+  }
+}
+
+export const logout = async (req, res) => {
+  try {
+    req.user.tokens = req.user.tokens.filter(token => token !== req.token)
+    await req.user.save()
+    res.stateu(200).send({ success: true, message: '' })
+  } catch (error) {
+    res.stauts(500).send({ success: false, message: '伺服器錯誤' })
+  }
+}
+
+export const extend = async (req, res) => {
+  try {
+    const idx = req.user.tokens.findIndex(token => token === req.token)
+    const token = jwt.sign({ _id: req.user._id.toString() }, process.env.SECRET, { expiresIn: '7 days' })
+    req.user.tokens[idx] = token
+    req.user.markModified('tokens')
+    await req.user.save()
+    res.stateu(200).send({ success: true, message: '', result: { token } })
+  } catch (error) {
+    res.stauts(500).send({ success: false, message: '伺服器錯誤' })
+  }
+}
+
+export const getUserInfo = (req, res) => {
+  try {
+    const result = req.user.toObject()
+    delete result.tokens
+    res.stateu(200).send({ success: true, message: '', result })
+  } catch (error) {
+    res.stauts(500).send({ success: false, message: '伺服器錯誤' })
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+創middleware/auth.js
+
+import jwt from 'jsonwebtoken'
+import users from '../models/users.js'
+
+export default async (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '') || ''
+    if (token.length > 0) {
+      const decoded = jwt.decode(token)
+      req.user = await users.findOne({ _id: decoded._id, tokens: token })
+      req.token = token
+      if (req.user) {
+        jwt.verify(token, process.env.SECRET)
+        next()
+      } else {
+        throw new Error()
+      }
+    } else {
+      throw new Error()
+    }
+  } catch (error) {
+    if (error.name === 'TokenExpiredError' && req.baseUrl === '/users' && req.path === '/extend') {
+      next()
+    } else {
+      res.status(401).send({ success: false, message: '驗證錯誤' })
+    }
+  }
+}
+
+
+
+
+
+
+routes/users.js
+
+import express from 'express'
+import content from '../middleware/content.js'
+import auth from '../middleware/auth.js'
+
+import {
+  register,
+  login,
+  logout,
+  extend,
+  getUserInfo
+} from '../controllers/users.js'
+
+const router = express.Router()
+
+router.post('/', content('application/json'), register)
+router.post('/login', content('application/json'), login)
+router.post('/extend', auth, extend)
+router.delete('/logout', auth, logout)
+router.get('/me', getUserInfo)
+
+export default router
+
+
+
+.env
+加SECRET
+SECRET=asgrgaregregergargargargag
+
+改env 要重開 npm run dev
+
+
+
+
+
+
+前端
+在store創user資料夾
+裡面創五個
+action.js
+getters.js
+index.js
+mutation.js
+state.js
+
+
+
+
+
+index.js
+
+import state from './state'
+import * as actions from './actions'
+import * as getters from './getters'
+import * as mutations from './mutations'
+
+export default {
+  namespaced: true,
+  state,
+  actions,
+  getters,
+  mutations
+}
+
+
+
+
+
+state.js
+
+export default () => {
+  return {
+    token: '',
+    account: '',
+    role: 0,
+    email: '',
+    cart: []
+  }
+}
+
+
+
+
+
+
+
+
+store/index.js
+
+import Vue from 'vue'
+import Vuex from 'vuex'
+import user from './user'
+
+Vue.use(Vuex)
+
+export default new Vuex.Store({
+  state: {
+  },
+  mutations: {
+  },
+  actions: {
+  },
+  modules: {
+    user
+  }
+})
+
+
+
+
+
+
+
+
+
+router/index.js
+
+import Vue from 'vue'
+import VueRouter from 'vue-router'
+import Home from '../views/Home.vue'
+
+Vue.use(VueRouter)
+
+const routes = [
+  {
+    path: '/',
+    name: 'Home',
+    component: Home,
+    meta: {
+      title: '購物網'
+    }
+  },
+  {
+    path: '/register',
+    name: 'Register',
+    component: () => import(/* webpackChunkName: "register" */ '../views/Register.vue'),
+    meta: {
+      title: '註冊 | 購物網'
+    }
+  },
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import(/* webpackChunkName: "login" */ '../views/Login.vue'),
+    meta: {
+      title: '登入 | 購物網'
+    }
+  }
+]
+
+const router = new VueRouter({
+  routes
+})
+
+router.afterEach((to, from) => {
+  document.title = to.meta.title
+})
+
+export default router
+
+
+
+
+
+
+
+創 views/Login.vue
+
+
+
+
+
+
+
